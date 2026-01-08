@@ -1,17 +1,18 @@
-# backend/main.py
+# backend/main.py - FIXED VERSION WITH PROPER CORS
 # ---------------
-# FastAPI application for Demand Forecasting API
 
 from fastapi import FastAPI, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import io
 import pandas as pd
+from typing import Optional
+import traceback
 
 from .data_preparation import prepare_category_data, get_data_summary
 from .forecast_service import run_demand_forecast
 from .ai_insight_service import generate_ai_insight
 from .evaluation import evaluate_forecast_accuracy, get_model_diagnostics
-from .config import settings, get_festivals_for_month
+from .config import settings, get_festivals_for_month, validate_forecast_horizon
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -20,14 +21,21 @@ app = FastAPI(
     description="Adaptive AI-powered demand forecasting with comprehensive insights"
 )
 
-# CORS middleware for frontend
+# FIXED CORS - Allow all origins for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # In production, specify exact origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def str_to_bool(value: str) -> bool:
+    """Convert string to boolean"""
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() in ('true', '1', 'yes', 'on')
 
 
 @app.get("/")
@@ -37,11 +45,12 @@ async def root():
         "status": "healthy",
         "app": settings.app_name,
         "version": settings.app_version,
+        "message": "Backend is running successfully!",
         "features": [
-            "Adaptive forecasting (2+ months of data)",
-            "Seasonal pattern detection (12+ months optimal)",
-            "Festival impact analysis",
-            "Multi-horizon forecasting (1-6 months)",
+            "Dynamic forecast horizon validation",
+            "Multi-country support",
+            "External factors analysis",
+            "Seasonal pattern detection",
             "AI-powered insights"
         ]
     }
@@ -55,9 +64,110 @@ async def health_check():
         "min_months_required": settings.min_months_for_analysis,
         "recommended_months": settings.min_months_for_seasonality,
         "optimal_months": settings.optimal_months,
-        "ai_model": settings.groq_model,
-        "max_forecast_horizon": settings.max_forecast_horizon
+        "ai_model": settings.gemini_model,
+        "max_forecast_horizon": settings.max_forecast_horizon,
+        "supported_countries": ["IN", "US", "UK"]
     }
+
+
+@app.post("/validate-data")
+async def validate_data(
+    file: UploadFile,
+    category: str = Form(...),
+    date_col: str = Form(...),
+    category_col: str = Form(...),
+    units_col: str = Form(...)
+):
+    """
+    Validate uploaded data and return horizon availability.
+    """
+    try:
+        # Read file
+        contents = await file.read()
+        
+        # Try to parse CSV
+        try:
+            df = pd.read_csv(io.BytesIO(contents))
+        except Exception as csv_error:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to read CSV file. Please ensure it's a valid CSV format. Error: {str(csv_error)}"
+            )
+        
+        # Check if dataframe is empty
+        if df.empty:
+            raise HTTPException(
+                status_code=400,
+                detail="The uploaded CSV file is empty. Please upload a file with data."
+            )
+        
+        # Validate columns exist
+        missing_cols = []
+        for col, name in [(date_col, "Date"), (category_col, "Category"), (units_col, "Units")]:
+            if col not in df.columns:
+                missing_cols.append(f"{name} column '{col}'")
+        
+        if missing_cols:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing columns: {', '.join(missing_cols)}. Available columns: {', '.join(df.columns.tolist())}"
+            )
+        
+        # Prepare data
+        try:
+            monthly_df = prepare_category_data(
+                df=df,
+                category=category,
+                date_col=date_col,
+                category_col=category_col,
+                units_col=units_col
+            )
+        except ValueError as ve:
+            raise HTTPException(
+                status_code=400,
+                detail=str(ve)
+            )
+        
+        data_months = len(monthly_df)
+        data_summary = get_data_summary(monthly_df)
+        
+        # Validate each horizon
+        horizon_validation = {}
+        for horizon in [1, 3, 6]:
+            validation = validate_forecast_horizon(data_months, horizon)
+            horizon_validation[f"{horizon}_month"] = {
+                "allowed": validation["valid"],
+                "message": validation["message"],
+                "confidence": validation["confidence"]
+            }
+        
+        available_horizons = [h for h in [1, 3, 6] if horizon_validation[f"{h}_month"]["allowed"]]
+        ready_for_forecast = data_months >= settings.min_months_for_analysis
+        
+        return {
+            "status": "success",
+            "category": category,
+            "data_summary": data_summary,
+            "horizon_validation": horizon_validation,
+            "available_horizons": available_horizons,
+            "ready_for_forecast": ready_for_forecast,
+            "readiness_message": (
+                "✅ Data is sufficient for forecasting" 
+                if ready_for_forecast 
+                else f"❌ Insufficient data. Need {settings.min_months_for_analysis} months minimum, have {data_months}"
+            )
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log the full error for debugging
+        print(f"Validation Error: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Server error during validation: {str(e)}"
+        )
 
 
 @app.post("/forecast/upload")
@@ -67,11 +177,22 @@ async def upload_and_forecast(
     date_col: str = Form(...),
     category_col: str = Form(...),
     units_col: str = Form(...),
-    horizon: int = Form(1)
+    horizon: int = Form(1),
+    # External factors
+    upcoming_promotion: str = Form("false"),
+    marketing_campaign: str = Form("false"),
+    new_product_launch: str = Form("false"),
+    availability_issues: str = Form("false"),
+    price_change: str = Form("Same"),
+    supply_chain_disruption: str = Form("false"),
+    regulatory_changes: str = Form("false"),
+    logistics_constraints: str = Form("false"),
+    economic_uncertainty: str = Form("None"),
+    region: str = Form("India"),
+    country: str = Form("IN")
 ):
     """
     Upload sales data and generate adaptive AI-powered demand forecast.
-    Works with as little as 2 months of data, with warnings for limited data.
     """
     
     try:
@@ -82,17 +203,26 @@ async def upload_and_forecast(
                 detail=f"Forecast horizon must be between 1 and {settings.max_forecast_horizon} months"
             )
         
-        # 1. Read uploaded file
+        # Read uploaded file
         contents = await file.read()
+        
+        # Parse CSV
         try:
             df = pd.read_csv(io.BytesIO(contents))
-        except Exception as e:
+        except Exception as csv_error:
             raise HTTPException(
                 status_code=400,
-                detail=f"Failed to read CSV file: {str(e)}"
+                detail=f"Failed to read CSV file: {str(csv_error)}"
             )
 
-        # 2. Prepare and aggregate data
+        # Check if empty
+        if df.empty:
+            raise HTTPException(
+                status_code=400,
+                detail="The uploaded CSV file is empty"
+            )
+
+        # Prepare and aggregate data
         try:
             monthly_df = prepare_category_data(
                 df=df,
@@ -102,37 +232,96 @@ async def upload_and_forecast(
                 units_col=units_col
             )
         except ValueError as ve:
-            # Data preparation errors (category not found, insufficient data)
             raise HTTPException(
                 status_code=400,
                 detail=str(ve)
             )
         
-        # Get data summary
+        data_months = len(monthly_df)
+        
+        # Validate horizon
+        validation = validate_forecast_horizon(data_months, horizon)
+        if not validation["valid"]:
+            raise HTTPException(
+                status_code=400,
+                detail=validation["message"]
+            )
+        
         data_summary = get_data_summary(monthly_df)
 
-        # 3. Run ADAPTIVE forecast
+        # Run forecast
         try:
             forecast_result = run_demand_forecast(
                 monthly_df=monthly_df,
                 periods=horizon
             )
         except ValueError as ve:
-            # Forecasting errors (insufficient data for model)
             raise HTTPException(
                 status_code=400,
                 detail=str(ve)
             )
 
-        # 4. Prepare context for AI insights
+        # Prepare context
         next_month = monthly_df["ds"].max() + pd.DateOffset(months=1)
         month_name = next_month.strftime("%B %Y")
-        month_only = next_month.strftime("%B")
         
-        # Get festivals for the forecast month
-        festivals = get_festivals_for_month(month_only)
+        # Get festivals
+        festivals_in_window = get_festivals_for_month(
+            next_month.strftime("%B"),
+            country
+        )
 
-        # 5. Generate ENHANCED AI Insight with full context
+        
+        # Parse external factors
+        external_factors_dict = {
+            "upcoming_promotion": str_to_bool(upcoming_promotion),
+            "marketing_campaign": str_to_bool(marketing_campaign),
+            "new_product_launch": str_to_bool(new_product_launch),
+            "availability_issues": str_to_bool(availability_issues),
+            "price_change": price_change,
+            "supply_chain_disruption": str_to_bool(supply_chain_disruption),
+            "regulatory_changes": str_to_bool(regulatory_changes),
+            "logistics_constraints": str_to_bool(logistics_constraints),
+            "economic_uncertainty": economic_uncertainty,
+            "region": region
+        }
+                
+        # Build external factors summary
+        external_factors_summary = []
+        if external_factors_dict["upcoming_promotion"]:
+            external_factors_summary.append("Upcoming promotion planned")
+        if external_factors_dict["marketing_campaign"]:
+            external_factors_summary.append("Active marketing campaign")
+        if external_factors_dict["new_product_launch"]:
+            external_factors_summary.append("New product launch expected")
+        if external_factors_dict["availability_issues"]:
+            external_factors_summary.append("Availability constraints present")
+        if external_factors_dict["price_change"] != "Same":
+            external_factors_summary.append(f"Price change: {external_factors_dict['price_change']}")
+        if external_factors_dict["supply_chain_disruption"]:
+            external_factors_summary.append("Supply chain risk identified")
+        if external_factors_dict["regulatory_changes"]:
+            external_factors_summary.append("Regulatory changes expected")
+        if external_factors_dict["logistics_constraints"]:
+            external_factors_summary.append("Logistics constraints present")
+        if external_factors_dict["economic_uncertainty"] != "None":
+            external_factors_summary.append(f"Economic uncertainty: {external_factors_dict['economic_uncertainty']}")
+
+        # Enhance warnings
+        enhanced_warnings = forecast_result.get("warnings", []).copy()
+        
+        if external_factors_dict["availability_issues"]:
+            enhanced_warnings.append("Availability constraints may limit ability to meet forecasted demand")
+        if external_factors_dict["supply_chain_disruption"]:
+            enhanced_warnings.append("Supply chain disruptions may impact fulfillment capacity")
+        if external_factors_dict["price_change"] == "Increase":
+            enhanced_warnings.append("Price increase may reduce actual demand below forecast")
+        elif external_factors_dict["price_change"] == "Decrease":
+            enhanced_warnings.append("Price decrease may drive demand above forecast")
+        if external_factors_dict["economic_uncertainty"] in ["Medium", "High"]:
+            enhanced_warnings.append(f"{external_factors_dict['economic_uncertainty']} economic uncertainty increases forecast risk")
+        
+        # Generate AI insight
         ai_insight = generate_ai_insight(
             category=category,
             forecasted_units=forecast_result["forecasted_units"],
@@ -145,41 +334,39 @@ async def upload_and_forecast(
             yoy_change=forecast_result.get("yoy_change_percent"),
             data_months=forecast_result.get("data_months"),
             confidence=forecast_result.get("confidence"),
-            region="India",
-            festivals=festivals,
+            region=region,
+            festivals=festivals_in_window,
             seasonality=forecast_result.get("seasonality"),
-            warnings=forecast_result.get("warnings"),
-            coefficient_of_variation=forecast_result.get("coefficient_of_variation")
+            warnings=enhanced_warnings,
+            coefficient_of_variation=forecast_result.get("coefficient_of_variation"),
+            external_factors=external_factors_dict,
+            country=country
         )
 
-        # 6. Return COMPREHENSIVE response
+        # Return response
         return {
-            # Core forecast data
             **forecast_result,
-            
-            # AI insight
             "ai_insight": ai_insight,
-            
-            # Additional context
             "data_summary": data_summary,
             "forecast_month": month_name,
-            "festivals": festivals,
-            
-            # User guidance
+            "festivals": festivals_in_window,
+            "external_factors": external_factors_summary,
+            "region": region,
+            "country": country,
             "data_quality_message": forecast_result.get("data_quality_message"),
-            "warnings": forecast_result.get("warnings", []),
+            "warnings": enhanced_warnings,
             "recommendations": forecast_result.get("recommendations", [])
         }
 
     except HTTPException:
-        # Re-raise HTTP exceptions
         raise
-
     except Exception as e:
-        # Catch-all for unexpected errors
+        # Log full error
+        print(f"Forecast Error: {str(e)}")
+        print(traceback.format_exc())
         raise HTTPException(
             status_code=500,
-            detail=f"Unexpected server error: {str(e)}"
+            detail=f"Server error during forecast: {str(e)}"
         )
 
 
@@ -192,10 +379,7 @@ async def evaluate_model(
     units_col: str = Form(...),
     holdout_months: int = Form(3)
 ):
-    """
-    Evaluate forecast model accuracy using holdout validation.
-    Requires sufficient historical data.
-    """
+    """Evaluate forecast model accuracy."""
     
     try:
         contents = await file.read()
@@ -209,20 +393,17 @@ async def evaluate_model(
             units_col=units_col
         )
         
-        # Check if enough data for evaluation
         if len(monthly_df) < holdout_months + settings.min_months_for_analysis:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient data for evaluation. Need at least {holdout_months + settings.min_months_for_analysis} months, have {len(monthly_df)}"
+                detail=f"Insufficient data for evaluation. Need at least {holdout_months + settings.min_months_for_analysis} months"
             )
         
-        # Run evaluation
         evaluation_result = evaluate_forecast_accuracy(
             monthly_df=monthly_df,
             holdout_months=holdout_months
         )
         
-        # Get diagnostics
         diagnostics = get_model_diagnostics(monthly_df)
         
         return {
@@ -231,16 +412,14 @@ async def evaluate_model(
             "diagnostics": diagnostics
         }
 
-    except ValueError as ve:
-        raise HTTPException(
-            status_code=400,
-            detail=str(ve)
-        )
-
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Evaluation Error: {str(e)}")
+        print(traceback.format_exc())
         raise HTTPException(
-            status_code=500,
-            detail=f"Unexpected server error: {str(e)}"
+            status_code=500, 
+            detail=f"Server error: {str(e)}"
         )
 
 
@@ -252,10 +431,7 @@ async def get_data_info(
     category_col: str = Form(...),
     units_col: str = Form(...)
 ):
-    """
-    Get data summary and quality assessment without running forecast.
-    Useful for data validation before forecasting.
-    """
+    """Get data summary."""
     
     try:
         contents = await file.read()
@@ -274,7 +450,6 @@ async def get_data_info(
         
         data_months = len(monthly_df)
         
-        # Determine readiness
         if data_months >= settings.optimal_months:
             readiness = "optimal"
             message = "Excellent data quality - ready for highly accurate forecasting"
@@ -283,7 +458,7 @@ async def get_data_info(
             message = "Good data quality - ready for seasonal forecasting"
         elif data_months >= settings.min_months_for_analysis:
             readiness = "limited"
-            message = "Limited data - forecast will be trend-based only without seasonal patterns"
+            message = "Limited data - forecast will be trend-based only"
         else:
             readiness = "insufficient"
             message = f"Insufficient data - need at least {settings.min_months_for_analysis} months"
@@ -298,14 +473,12 @@ async def get_data_info(
             "can_detect_seasonality": data_months >= settings.min_months_for_seasonality
         }
 
-    except ValueError as ve:
-        raise HTTPException(
-            status_code=400,
-            detail=str(ve)
-        )
-
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Summary Error: {str(e)}")
+        print(traceback.format_exc())
         raise HTTPException(
-            status_code=500,
-            detail=f"Unexpected server error: {str(e)}"
+            status_code=500, 
+            detail=f"Server error: {str(e)}"
         )
