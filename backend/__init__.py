@@ -15,3 +15,5 @@ __all__ = [
     "generate_ai_insight",
     "settings"
 ]
+
+__version__ = "0.1.0"               
