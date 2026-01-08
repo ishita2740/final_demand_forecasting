@@ -201,7 +201,7 @@ class DemandProphetModel:
 
     def get_seasonality_strength(self) -> dict:
         """
-        Calculate the relative strength of seasonal components.
+        Calculate the relative strength of seasonal components with improved accuracy.
         
         Returns:
             dict: Seasonality strength metrics with interpretation
@@ -224,15 +224,39 @@ class DemandProphetModel:
         holiday_strength = 0.0
         seasonality_detected = False
         
+        # Enhanced yearly seasonality calculation
         if "yearly" in forecast.columns and total_variance > 0:
             yearly_variance = forecast["yearly"].var()
+            # Use ratio to total forecast variance
             yearly_strength = min(100, (yearly_variance / total_variance) * 100)
-            if yearly_strength > 5:  # Threshold for significance
+            
+            # Also check the magnitude of seasonal swings
+            yearly_range = forecast["yearly"].max() - forecast["yearly"].min()
+            yearly_mean = abs(forecast["yhat"].mean())
+            
+            if yearly_mean > 0:
+                # Calculate seasonal swing as % of mean forecast
+                seasonal_swing_pct = (yearly_range / yearly_mean) * 100
+                # Use the maximum of variance-based and swing-based measures
+                yearly_strength = max(yearly_strength, seasonal_swing_pct)
+            
+            # Seasonality is "detected" if it explains >10% variance OR has >15% swing
+            if yearly_strength > 10:
                 seasonality_detected = True
         
+        # Enhanced holiday impact calculation
         if "holidays" in forecast.columns and total_variance > 0:
             holiday_variance = forecast["holidays"].var()
             holiday_strength = min(100, (holiday_variance / total_variance) * 100)
+            
+            # Also check magnitude of holiday effects
+            if not forecast["holidays"].isna().all():
+                holiday_range = forecast["holidays"].max() - forecast["holidays"].min()
+                holiday_mean = abs(forecast["yhat"].mean())
+                
+                if holiday_mean > 0:
+                    holiday_swing_pct = (holiday_range / holiday_mean) * 100
+                    holiday_strength = max(holiday_strength, holiday_swing_pct)
         
         # Interpret seasonality strength
         if not seasonality_detected:
@@ -241,7 +265,7 @@ class DemandProphetModel:
             interpretation = "Strong seasonal patterns - demand varies significantly throughout the year"
         elif yearly_strength > 25:
             interpretation = "Moderate seasonal patterns - noticeable variation across months"
-        elif yearly_strength > 10:
+        elif yearly_strength > 15:
             interpretation = "Weak seasonal patterns - some monthly variation present"
         else:
             interpretation = "Minimal seasonal patterns - demand is relatively stable"
