@@ -86,6 +86,38 @@ st.markdown("""
         line-height: 1.6;
     }
     
+    /* ===== EMPTY STATE ===== */
+    .empty-state-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 70vh;
+        text-align: center;
+        padding: 40px 20px;
+    }
+    
+    .empty-state-icon {
+        font-size: 4rem;
+        margin-bottom: 24px;
+        opacity: 0.3;
+    }
+    
+    .empty-state-heading {
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: #1a237e;
+        margin-bottom: 12px;
+    }
+    
+    .empty-state-description {
+        font-size: 1.05rem;
+        color: #666;
+        max-width: 480px;
+        margin-bottom: 32px;
+        line-height: 1.5;
+    }
+    
     /* ===== FORECAST DRIVERS SECTION ===== */
     .forecast-drivers-container {
         background: white;
@@ -520,7 +552,6 @@ def render_forecast_drivers(external_factors: dict, festivals: list, seasonality
     with col_external:
         st.markdown('<div class="column-title">🌍 External Factors Impact</div>', unsafe_allow_html=True)
         
-        # [External factors code remains exactly the same - DO NOT MODIFY]
         active_factors = []
         
         if external_factors:
@@ -647,7 +678,6 @@ def render_festivals_awareness(festivals: list):
             <div class="section-title">Upcoming Festivals & Holidays</div>
         </div>
     </div>
-    <div class="section-subtitle">Events occurring in the forecast period (for reference only)</div>
     """, unsafe_allow_html=True)
     
     st.markdown('<div style="margin-top: 16px;"></div>', unsafe_allow_html=True)
@@ -690,6 +720,7 @@ if not st.session_state.show_app:
             margin-top: 0px;
             margin-left: 0px;
             margin-right: auto; 
+            margin-bottom: 60px;
         }
         .header-title {
             font-size: 2.2rem;
@@ -700,6 +731,37 @@ if not st.session_state.show_app:
             font-size: 1.05rem;
             color: #555;
             margin-top: 6px;
+        }
+        
+        .empty-state-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 50vh;
+            text-align: center;
+            padding: 40px 20px;
+        }
+        
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 24px;
+            opacity: 0.3;
+        }
+        
+        .empty-state-heading {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: #1a237e;
+            margin-bottom: 12px;
+        }
+        
+        .empty-state-description {
+            font-size: 1.05rem;
+            color: #666;
+            max-width: 480px;
+            margin-bottom: 32px;
+            line-height: 1.5;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -715,13 +777,22 @@ if not st.session_state.show_app:
             </div>
         """, unsafe_allow_html=True)
 
-        st.markdown("<div style='height:52vh'></div>", unsafe_allow_html=True)
-        st.markdown("<div style='padding-bottom:20px'></div>", unsafe_allow_html=True)
-        st.markdown("<div style='margin-top: 40px;'></div>", unsafe_allow_html=True)
-
-        if st.button("🚀 Generate New Forecast"):
-            st.session_state.show_app = True
-            st.rerun()
+        st.markdown("""
+            <div class="empty-state-container">
+                <div class="empty-state-icon">📊</div>
+                <div class="empty-state-heading">No forecasts yet</div>
+                <div class="empty-state-description">
+                    Click Generate New Forecast to create your first AI-powered demand forecast.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # Center the button using columns
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            if st.button("🚀 Generate New Forecast", use_container_width=True):
+                st.session_state.show_app = True
+                st.rerun()
 
     st.stop()
 
@@ -1023,7 +1094,14 @@ with col_chart:
         category = st.session_state.get('selected_category', 'Product')
         
         st.divider()
-        st.markdown("### 📊 Forecast Results")
+        st.markdown("""
+        <div class="section-header">
+            <div class="section-icon">📊</div>
+            <div>
+                <div class="section-title">Forecast Results</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
         # Metrics Row
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
@@ -1060,7 +1138,14 @@ with col_info:
     if st.session_state.get('validation_result'):
         validation = st.session_state['validation_result']
         
-        st.subheader("📊 Data Quality")
+        st.markdown("""
+        <div class="section-header">
+            <div class="section-icon">📊</div>
+            <div>
+                <div class="section-title">Data Quality</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         data_summary = validation.get("data_summary", {})
         
         if data_summary:
@@ -1082,7 +1167,14 @@ with col_info:
     elif st.session_state['forecast_result']:
         res = st.session_state['forecast_result']
         
-        st.subheader("📊 Data Quality")
+        st.markdown("""
+        <div class="section-header">
+            <div class="section-icon">📊</div>
+            <div>
+                <div class="section-title">Data Quality</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         data_summary = res.get("data_summary", {})
         
         if data_summary:
@@ -1094,7 +1186,15 @@ with col_info:
             st.markdown(f"**Total Units:** {data_summary.get('total_units', 0):,}")
     
     else:
-        st.subheader("💡 Tips")
+        st.markdown("""
+        <div class="section-header">
+            <div class="section-icon">💡</div>
+            <div>
+                <div class="section-title">Tips</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
         st.markdown("""
         - Upload **6+ months** minimum
         - **12+ months** for seasonal patterns
