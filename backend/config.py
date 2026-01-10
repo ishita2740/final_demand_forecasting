@@ -93,18 +93,50 @@ settings = Settings()
 
 # Default festival data for India
 DEFAULT_FESTIVALS_INDIA = {
-    "January": ["Makar Sankranti", "Republic Day", "Pongal"],
-    "February": ["Maha Shivaratri"],
-    "March": ["Holi", "Ugadi"],
-    "April": ["Ram Navami", "Mahavir Jayanti"],
-    "May": ["Eid al-Fitr (varies)", "Buddha Purnima"],
+    "January": [
+        "Makar Sankranti (January 14-15)",
+        "Republic Day (January 26)",
+        "Pongal (January 14-17)"
+    ],
+    "February": ["Maha Shivaratri (Mid-February)"],
+    "March": [
+        "Holi (Late February/Early March)",
+        "Ugadi (Late March/Early April)"
+    ],
+    "April": [
+        "Ram Navami (Mid-April)",
+        "Mahavir Jayanti (Late March/Early April)"
+    ],
+    "May": [
+        "Eid al-Fitr (varies)",
+        "Buddha Purnima (April/May Full Moon)"
+    ],
     "June": ["Eid al-Adha (varies)"],
-    "July": ["Guru Purnima"],
-    "August": ["Independence Day", "Raksha Bandhan", "Janmashtami"],
-    "September": ["Ganesh Chaturthi", "Onam"],
-    "October": ["Navratri", "Dussehra", "Durga Puja", "Diwali"],
-    "November": ["Diwali (if not in Oct)", "Bhai Dooj", "Guru Nanak Jayanti"],
-    "December": ["Christmas", "New Year Eve"]
+    "July": ["Guru Purnima (July Full Moon)"],
+    "August": [
+        "Independence Day (August 15)",
+        "Raksha Bandhan (August Full Moon)",
+        "Janmashtami (Late August)"
+    ],
+    "September": [
+        "Ganesh Chaturthi (Late August/Early September)",
+        "Onam (Late August/Early September)"
+    ],
+    "October": [
+        "Navratri (September/October)",
+        "Dussehra (September/October)",
+        "Durga Puja (September/October)",
+        "Diwali (October/November)"
+    ],
+    "November": [
+        "Diwali (October/November)",
+        "Bhai Dooj (November)",
+        "Guru Nanak Jayanti (November Full Moon)"
+    ],
+    "December": [
+        "Christmas (December 25)",
+        "New Year Eve (December 31)"
+    ]
 }
 
 # Support for multiple countries/regions
