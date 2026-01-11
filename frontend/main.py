@@ -36,6 +36,57 @@ if "validation_result" not in st.session_state:
     st.session_state.validation_result = None
 if "selected_external_factors" not in st.session_state:
     st.session_state.selected_external_factors = {}
+if "forecast_history" not in st.session_state:
+    st.session_state.forecast_history = []  # List to store all forecasts
+if "storage_initialized" not in st.session_state:
+    st.session_state.storage_initialized = False
+
+
+# --- PERSISTENT STORAGE FUNCTIONS ---
+import json
+import os
+
+STORAGE_FILE = "forecast_history.json"
+
+def load_forecast_history():
+    """Load forecast history from JSON file."""
+    try:
+        if os.path.exists(STORAGE_FILE):
+            with open(STORAGE_FILE, 'r') as f:
+                return json.load(f)
+        return []
+    except Exception as e:
+        print(f"Error loading forecast history: {e}")
+        return []
+
+
+def save_forecast_history(history):
+    """Save forecast history to JSON file."""
+    try:
+        with open(STORAGE_FILE, 'w') as f:
+            json.dump(history, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving forecast history: {e}")
+        return False
+
+
+def initialize_storage():
+    """Initialize storage on app load."""
+    if not st.session_state.storage_initialized:
+        try:
+            # Load existing history from file
+            history = load_forecast_history()
+            if history:
+                st.session_state.forecast_history = history
+            st.session_state.storage_initialized = True
+        except Exception as e:
+            print(f"Storage initialization error: {e}")
+            st.session_state.storage_initialized = True
+
+
+# Initialize storage when app loads
+initialize_storage()
 
 # --- ENHANCED CSS ---
 st.markdown("""
@@ -672,17 +723,12 @@ def render_main_page():
     st.title("📈 AI Demand Forecasting")
     st.caption("Powered by advanced time-series AI with contextual market analysis")
     
-    # Navigation buttons
-    col_nav1, col_nav2, col_nav3 = st.columns([1, 1, 3])
-    with col_nav1:
-        if st.button("🚀 Generate New Forecast", use_container_width=True):
-            st.session_state.current_page = "generate"
-            st.rerun()
-    
-    with col_nav2:
-        if st.session_state.forecast_result:
-            if st.button("📄 Export Report", use_container_width=True):
-                st.info("Export functionality coming soon!")
+    # Auto-load latest forecast if history exists and no current forecast is displayed
+    if not st.session_state.forecast_result and st.session_state.forecast_history:
+        latest_forecast = st.session_state.forecast_history[-1]  # Get the most recent
+        st.session_state.forecast_result = latest_forecast['result']
+        st.session_state.selected_category = latest_forecast['category']
+        st.session_state.selected_external_factors = latest_forecast.get('external_factors', {})
     
     # Show forecast if exists
     if st.session_state.forecast_result:
@@ -741,6 +787,17 @@ def render_main_page():
             
             # Festivals Awareness
             render_festivals_awareness(festivals=res.get('festivals', []))
+            
+            # Navigation buttons below festivals - not full width
+            st.markdown('<div style="margin-top: 30px;"></div>', unsafe_allow_html=True)
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("🚀 Generate New Forecast", key="gen_new_main"):
+                    st.session_state.current_page = "generate"
+                    st.rerun()
+            with col_btn2:
+                if st.button("📄 Export Report", key="export_main"):
+                    st.info("Export functionality coming soon!")
         
         with col_info:
             st.markdown("""
@@ -761,6 +818,90 @@ def render_main_page():
                 st.write("")
                 st.markdown(f"**Avg Monthly:** {data_summary.get('avg_monthly_units', 0):,.0f} units")
                 st.markdown(f"**Total Units:** {data_summary.get('total_units', 0):,}")
+            
+            st.markdown("---")
+            
+            # Forecast History Section
+            st.markdown("""
+            <div class="section-header" style="margin-top: 20px;">
+                <div class="section-icon">📚</div>
+                <div>
+                    <div class="section-title" style="font-size: 1.3rem;">Forecast History</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.session_state.forecast_history:
+                # Get unique values for filters
+                all_categories = list(set([f['category'] for f in st.session_state.forecast_history]))
+                all_horizons = list(set([f['horizon'] for f in st.session_state.forecast_history]))
+                all_data_months = list(set([f['data_months'] for f in st.session_state.forecast_history]))
+                
+                all_categories.sort()
+                all_horizons.sort()
+                all_data_months.sort()
+                
+                # Filters
+                st.markdown("**Filters:**")
+                filter_category = st.selectbox(
+                    "Category",
+                    ["All"] + all_categories,
+                    key="filter_category"
+                )
+                
+                filter_horizon = st.selectbox(
+                    "Horizon",
+                    ["All"] + [f"{h} month{'s' if h > 1 else ''}" for h in all_horizons],
+                    key="filter_horizon"
+                )
+                
+                filter_data_months = st.selectbox(
+                    "Data Months",
+                    ["All"] + [f"{m} months" for m in all_data_months],
+                    key="filter_data_months"
+                )
+                
+                # Apply filters
+                filtered_forecasts = st.session_state.forecast_history.copy()
+                
+                if filter_category != "All":
+                    filtered_forecasts = [f for f in filtered_forecasts if f['category'] == filter_category]
+                
+                if filter_horizon != "All":
+                    horizon_value = int(filter_horizon.split()[0])
+                    filtered_forecasts = [f for f in filtered_forecasts if f['horizon'] == horizon_value]
+                
+                if filter_data_months != "All":
+                    data_months_value = int(filter_data_months.split()[0])
+                    filtered_forecasts = [f for f in filtered_forecasts if f['data_months'] == data_months_value]
+                
+                st.write("")
+                
+                if filtered_forecasts:
+                    st.markdown(f"**Found {len(filtered_forecasts)} forecast{'s' if len(filtered_forecasts) > 1 else ''}:**")
+                    st.write("")
+                    
+                    # Display filtered forecasts
+                    for idx, forecast in enumerate(reversed(filtered_forecasts)):  # Most recent first
+                        with st.container():
+                            st.markdown('<div class="card-box">', unsafe_allow_html=True)
+                            st.markdown(f"**{forecast['category']}**")
+                            st.caption(f"Generated: {forecast['timestamp']}")
+                            st.caption(f"Horizon: {forecast['horizon']} month{'s' if forecast['horizon'] > 1 else ''} | Data: {forecast['data_months']} months")
+                            st.caption(f"Forecast: {forecast['forecasted_units']:,} units")
+                            
+                            if st.button("📊 Show", key=f"show_forecast_{idx}", use_container_width=True):
+                                st.session_state.forecast_result = forecast['result']
+                                st.session_state.selected_category = forecast['category']
+                                st.session_state.selected_external_factors = forecast.get('external_factors', {})
+                                st.rerun()
+                            
+                            st.markdown('</div>', unsafe_allow_html=True)
+                            st.write("")
+                else:
+                    st.info("No forecasts match the selected filters.")
+            else:
+                st.info("No forecast history yet. Generate your first forecast!")
     
     else:
         # Empty state
@@ -769,10 +910,17 @@ def render_main_page():
                 <div class="empty-state-icon">📊</div>
                 <div class="empty-state-heading">No forecasts yet</div>
                 <div class="empty-state-description">
-                    Click "Generate New Forecast" above to create your first AI-powered demand forecast.
+                    Click "Generate New Forecast" below to create your first AI-powered demand forecast.
                 </div>
             </div>
         """, unsafe_allow_html=True)
+        
+        # Show buttons in empty state too
+        col_empty1, col_empty2, col_empty3 = st.columns([1, 1, 1])
+        with col_empty2:
+            if st.button("🚀 Generate New Forecast", use_container_width=True, key="gen_new_empty"):
+                st.session_state.current_page = "generate"
+                st.rerun()
     
     # Footer
     st.divider()
@@ -1045,6 +1193,25 @@ def render_generate_page():
                                 result = api_response.json()
                                 st.session_state['forecast_result'] = result
                                 st.session_state['selected_category'] = sel_cat
+                                
+                                # Store in forecast history
+                                forecast_entry = {
+                                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    'category': sel_cat,
+                                    'horizon': selected_horizon,
+                                    'data_months': result.get('data_months', 0),
+                                    'forecasted_units': result.get('forecasted_units', 0),
+                                    'result': result,
+                                    'external_factors': st.session_state['selected_external_factors']
+                                }
+                                st.session_state['forecast_history'].append(forecast_entry)
+                                
+                                # Save to persistent storage (JSON file)
+                                try:
+                                    save_forecast_history(st.session_state['forecast_history'])
+                                except Exception as e:
+                                    print(f"Error saving to storage: {e}")
+                                
                                 status_placeholder.success("✅ Forecast generated successfully!")
                                 
                                 # Redirect to main page after 1 second
